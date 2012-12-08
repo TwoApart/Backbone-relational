@@ -1339,9 +1339,14 @@
 		
 		/**
 		 * Convert relations to JSON, omits them when required
+		 *
+		 * IMPORTANT NOTE: the use of option `full=true` is very bad for performance. Do not use this in a loops!!
+		 *
 		 */
 		toJSON: function(options) {
-			// If this Model has already been fully serialized in this branch once, return to avoid loops
+			options = options || {};
+
+            // If this Model has already been fully serialized in this branch once, return to avoid loops
 			if ( this.isLocked() ) {
 				return this.id;
 			}
@@ -1356,12 +1361,14 @@
 			_.each( this._relations || [], function( rel ) {
 					var value = json[ rel.key ];
 
-					if ( rel.options.includeInJSON === true) {
+					if ( options.full || rel.options.includeInJSON === true) {
+						var jsonKey = options.full ? rel.key : rel.keyDestination;
+
 						if ( value && _.isFunction( value.toJSON ) ) {
-							json[ rel.keyDestination ] = value.toJSON( options );
+							json[ jsonKey ] = value.toJSON(options);
 						}
 						else {
-							json[ rel.keyDestination ] = null;
+							json[ jsonKey ] = null;
 						}
 					}
 					else if ( _.isString( rel.options.includeInJSON ) ) {
@@ -1402,7 +1409,7 @@
 						delete json[ rel.key ];
 					}
 
-					if ( rel.keyDestination !== rel.key ) {
+					if ( rel.keyDestination !== rel.key && !options.full ) {
 						delete json[ rel.key ];
 					}
 				});
