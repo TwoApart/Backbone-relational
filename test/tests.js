@@ -1,3 +1,4 @@
+/* vim: set tabstop=4:softtabstop=4:shiftwidth=4:noexpandtab */
 // documentation on writing tests here: http://docs.jquery.com/QUnit
 // example tests: https://github.com/jquery/qunit/blob/master/test/same.js
 // more examples: https://github.com/jquery/jquery/tree/master/test/unit
@@ -198,6 +199,51 @@ $(document).ready(function() {
 	window.NodeList = Backbone.Collection.extend({
 		model: Node
 	});
+
+	window.Customer = Backbone.RelationalModel.extend({
+		urlRoot: '/customer/'
+	});
+
+	window.Address = Backbone.RelationalModel.extend({
+		urlRoot: '/address/'
+	});
+
+	window.Shop = Backbone.RelationalModel.extend({
+		relations: [{
+				type: Backbone.HasMany,
+				key: 'customers',
+				relatedModel: 'Customer',
+				autoFetch: true
+			},{
+				type: Backbone.HasOne,
+				key: 'address',
+				relatedModel: 'Address',
+				autoFetch: {
+					success: function(model, response){
+						response.successOK = true;
+					},
+					error: function(model, response){
+						response.errorOK = true;
+					}
+				}
+			}
+		]
+	});
+
+	window.Agent = Backbone.RelationalModel.extend({
+		relations: [{
+				type: Backbone.HasMany,
+				key: 'customers',
+				relatedModel: 'Customer'
+			},{
+				type: Backbone.HasOne,
+				key: 'address',
+				relatedModel: 'Address',
+				autoFetch: false
+			}
+		]
+	});
+
 	
 	function initObjects() {
 		// Reset last ajax requests
@@ -349,7 +395,6 @@ $(document).ready(function() {
 		});
 		
 		test( "getObjectByName", function() {
-			equal( Backbone.Relational.store.getObjectByName( 'Backbone' ), Backbone );
 			equal( Backbone.Relational.store.getObjectByName( 'Backbone.RelationalModel' ), Backbone.RelationalModel );
 		});
 		
@@ -678,6 +723,63 @@ $(document).ready(function() {
 			ok( _.isArray( requests ) );
 			equal( requests.length, 0 );
 			equal( zoo.get( 'animals' ).length, 2 );
+		});
+
+		test( "autoFetch a HasMany relation", function() {
+			var shopOne = new Shop({
+				id: 'shop-1',
+				customers: ['customer-1', 'customer-2']
+			});
+
+			equal( requests.length, 2, "Two requests to fetch the users has been made" );
+			requests.length = 0;
+
+			var shopTwo = new Shop({
+				id: 'shop-2',
+				customers: ['customer-1', 'customer-3']
+			});
+
+			equal( requests.length, 1, "A request to fetch a user has been made" ); //as customer-1 has already been fetched
+		});
+
+		test( "autoFetch on a HasOne relation (with callbacks)", function() {
+			var shopThree = new Shop({
+				id: 'shop-3',
+				address: 'address-3'
+			});
+
+			equal( requests.length, 1, "A request to fetch the address has been made" );
+			
+			var res = { successOK: false, errorOK: false };
+			
+			requests[0].success( res );
+			equal( res.successOK, true, "The success() callback has been called" );
+			requests.length = 0;
+
+			var shopFour = new Shop({
+				id: 'shop-4',
+				address: 'address-4'
+			});
+
+			equal( requests.length, 1, "A request to fetch the address has been made" );
+			requests[0].error( res );
+			equal( res.errorOK, true, "The error() callback has been called" );
+		});
+
+		test( "autoFetch false by default", function() {
+			var agentOne = new Agent({
+				id: 'agent-1',
+				customers: ['customer-4', 'customer-5']
+			});
+
+			equal( requests.length, 0, "No requests to fetch the customers has been made as autoFetch was not defined" );
+
+			var agentOne = new Agent({
+				id: 'agent-2',
+				address: 'address-5'
+			});
+
+			equal( requests.length, 0, "No requests to fetch the customers has been made as autoFetch was set to false" );
 		});
 
 		test( "clone", function() {
@@ -1452,6 +1554,30 @@ $(document).ready(function() {
 			equal( TestForum.get('title'), "Cupcakes", "A forum of id 1 has the title cupcakes" );
 		});
 
+		// GH-187
+		test( "Can pass related model in constructor", function() {
+			var A = Backbone.RelationalModel.extend();
+			var B = Backbone.RelationalModel.extend({
+				relations: [{
+					type: Backbone.HasOne,
+					key: 'a',
+					keySource: 'a_id',
+					relatedModel: A
+				}]
+			});
+
+			var a1 = new A({ id: 'a1' });
+			var b1 = new B();
+			b1.set( 'a', a1 );
+			ok( b1.get( 'a' ) instanceof A );
+			ok( b1.get( 'a' ).id == 'a1' );
+
+			var a2 = new A({ id: 'a2' });
+			var b2 = new B({ a: a2 });
+			ok( b2.get( 'a' ) instanceof A );
+			ok( b2.get( 'a' ).id == 'a2' );
+		});
+
 
 	module( "Backbone.HasOne", { setup: initObjects } );
 		
@@ -1763,8 +1889,9 @@ $(document).ready(function() {
 
 			var indexes = [];
 
-			zoo.get("animals").on("add", function(collection, model, options) {
-				indexes.push(options.index);
+			zoo.get("animals").on("add", function(model, collection, options) {
+				var index = collection.indexOf(model);
+				indexes.push(index);
 			});
 
 			zoo.set("animals", [
@@ -1781,8 +1908,9 @@ $(document).ready(function() {
 
 			var indexes = [];
 
-			zoo.get("animals").on("add", function(collection, model, options) {
-				indexes.push(options.index);
+			zoo.get("animals").on("add", function(model, collection, options) {
+				var index = collection.indexOf(model);
+				indexes.push(index);
 			});
 
 			zoo.set("animals", [
@@ -1930,7 +2058,7 @@ $(document).ready(function() {
 			child.set( 'parent', parent );
 			parent.save( { 'parent': child } );
 
-			console.log( parent, child );
+			//console.log( parent, child );
 		});
 		
 		test( "HasMany relations to self (tree structure)", function() {
@@ -2154,49 +2282,43 @@ $(document).ready(function() {
 			// 	 Property.setup()
 			
 			var Property, View,
-			  __hasProp = {}.hasOwnProperty,
-			  __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor; child.__super__ = parent.prototype; return child; };
+				__hasProp = {}.hasOwnProperty,
+				__extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor; child.__super__ = parent.prototype; return child; };
 
-			View = (function(_super) {
+			View = ( function( _super ) {
+				__extends(View, _super);
 
-			  __extends(View, _super);
+				View.name = 'View';
 
-			  View.name = 'View';
+				function View() {
+					return View.__super__.constructor.apply( this, arguments );
+				}
 
-			  function View() {
-			    return View.__super__.constructor.apply(this, arguments);
-			  }
-
-			  return View;
-
-			})(Backbone.RelationalModel);
+				return View;
+			})( Backbone.RelationalModel );
 			
 			View.setup();
 
 			Property = (function(_super) {
+				__extends(Property, _super);
 
-			  __extends(Property, _super);
+				Property.name = 'Property';
 
-			  Property.name = 'Property';
+				function Property() {
+					return Property.__super__.constructor.apply(this, arguments);
+				}
 
-			  function Property() {
-			    return Property.__super__.constructor.apply(this, arguments);
-			  }
+				Property.prototype.relations = [{
+					type: Backbone.HasOne,
+					key: 'view',
+					relatedModel: View,
+					reverseRelation: {
+					type: Backbone.HasMany,
+						key: 'properties'
+					}
+				}];
 
-			  Property.prototype.relations = [
-			    {
-			      type: Backbone.HasOne,
-			      key: 'view',
-			      relatedModel: View,
-			      reverseRelation: {
-			        type: Backbone.HasMany,
-			        key: 'properties'
-			      }
-			    }
-			  ];
-
-			  return Property;
-
+				return Property;
 			})(Backbone.RelationalModel);
 			
 			Property.setup();
